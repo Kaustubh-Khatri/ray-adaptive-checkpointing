@@ -1,0 +1,299 @@
+2025-12-11 21:38:50,827	INFO worker.py:2023 -- Started a local Ray instance.
+/Users/kaustubhkhatri/Work/EB1A/code/ray-project/adaptive-controller/venv/lib/python3.12/site-packages/ray/_private/worker.py:2062: FutureWarning: Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var if num_gpus=0 or num_gpus=None (default). To enable this behavior and turn off this error message, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+  warnings.warn(
+[36m(pid=gcs_server)[0m [2025-12-11 21:39:20,376 E 94442 12642273] (gcs_server) gcs_server.cc:303: Failed to establish connection to the event+metrics exporter agent. Events and metrics will not be exported. Exporter agent status: RpcError: Running out of retries to initialize the metrics agent. rpc_code: 14
+[33m(raylet)[0m [2025-12-11 21:39:20,788 E 94446 12642393] (raylet) main.cc:979: Failed to establish connection to the metrics exporter agent. Metrics will not be exported. Exporter agent status: RpcError: Running out of retries to initialize the metrics agent. rpc_code: 14
+[36m(create_data_subset pid=94451)[0m [2025-12-11 21:39:21,347 E 94451 12642921] core_worker_process.cc:837: Failed to establish connection to the metrics exporter agent. Metrics will not be exported. Exporter agent status: RpcError: Running out of retries to initialize the metrics agent. rpc_code: 14
+[2025-12-11 21:39:21,403 E 94420 12642452] core_worker_process.cc:837: Failed to establish connection to the metrics exporter agent. Metrics will not be exported. Exporter agent status: RpcError: Running out of retries to initialize the metrics agent. rpc_code: 14
+[36m(pid=94455)[0m [2025-12-11 21:39:21,396 E 94455 12643102] core_worker_process.cc:837: Failed to establish connection to the metrics exporter agent. Metrics will not be exported. Exporter agent status: RpcError: Running out of retries to initialize the metrics agent. rpc_code: 14[32m [repeated 10x across cluster] (Ray deduplicates logs by default. Set RAY_DEDUP_LOGS=0 to disable log deduplication, or see https://docs.ray.io/en/master/ray-observability/user-guides/configure-logging.html#log-deduplication for more options.)[0m
+
+======================================================================
+CIFAR-10 Training with Ray: Stateless vs Stateful Execution
+======================================================================
+[STORE] Cleared all checkpoints
+
+### Demonstration: Normal Training ###
+
+======================================================================
+CIFAR-10 Training with Ray and Adaptive Checkpointing
+======================================================================
+
+--- Stage 1: Data Loading (STATELESS) ---
+Ray Execution: Launches a stateless task on any available worker
+               Task completes and result stored in object store
+[36m(load_cifar10_data pid=94451)[0m [STATELESS TASK] Loading CIFAR-10 data...
+[36m(load_cifar10_data pid=94451)[0m   Loaded 50000 training samples, 10000 test samples
+
+[CHECKPOINT DECISION] runtime=4.255s | checkpoint=True
+[STORE] Saved checkpoint: data_ckpt
+
+--- Stage 2: Create Data Subsets (STATELESS) ---
+Ray Execution: Another stateless task, independent of previous task
+[36m(create_data_subset pid=94451)[0m [STATELESS TASK] Creating data subset of size 5000...
+
+[CHECKPOINT DECISION] runtime=0.449s | checkpoint=False
+
+--- Stage 3: Initialize Trainer (STATEFUL ACTOR) ---
+Ray Execution: Creates a stateful actor that persists in memory
+               Actor maintains model, optimizer, and training state
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Initializing CIFAR10Trainer actor...
+
+[CHECKPOINT DECISION] runtime=3.689s | checkpoint=True
+
+--- Stage 4: Training Loop (STATEFUL ACTOR) ---
+Ray Execution: Repeatedly calls actor methods
+               Actor state (model weights) persists between calls
+               Each epoch builds on previous epoch's weights
+
+  Epoch 1/10
+[36m(CIFAR10Trainer pid=94452)[0m   Model initialized with 592554 parameters
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Training epoch 0...
+
+  [CHECKPOINT DECISION] epoch=0 runtime=3.174s | checkpoint=True
+[36m(CIFAR10Trainer pid=94452)[0m   Epoch 0: loss=2.1152, acc=0.3022, val_loss=2.5142, val_acc=0.1200
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Serializing model weights...
+[36m(create_data_subset pid=94457)[0m [STATELESS TASK] Creating data subset of size 1000...
+[STORE] Saved checkpoint: train_epoch_0_ckpt
+  [STORED] Saved model weights and training state
+
+  Epoch 2/10
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Training epoch 1...
+
+  [CHECKPOINT DECISION] epoch=1 runtime=1.665s | checkpoint=True
+[36m(CIFAR10Trainer pid=94452)[0m   Epoch 1: loss=1.6369, acc=0.4251, val_loss=2.8960, val_acc=0.1280
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Serializing model weights...
+[STORE] Saved checkpoint: train_epoch_1_ckpt
+  [STORED] Saved model weights and training state
+
+  Epoch 3/10
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Training epoch 2...
+
+  [CHECKPOINT DECISION] epoch=2 runtime=1.715s | checkpoint=False
+
+  Epoch 4/10
+[36m(CIFAR10Trainer pid=94452)[0m   Epoch 2: loss=1.3879, acc=0.5104, val_loss=3.0072, val_acc=0.0820
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Training epoch 3...
+
+  [CHECKPOINT DECISION] epoch=3 runtime=1.574s | checkpoint=False
+
+  Epoch 5/10
+[36m(CIFAR10Trainer pid=94452)[0m   Epoch 3: loss=1.1673, acc=0.5904, val_loss=3.7053, val_acc=0.1180
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Training epoch 4...
+
+  [CHECKPOINT DECISION] epoch=4 runtime=1.569s | checkpoint=False
+
+  Epoch 6/10
+[36m(CIFAR10Trainer pid=94452)[0m   Epoch 4: loss=0.9802, acc=0.6589, val_loss=2.9366, val_acc=0.1920
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Training epoch 5...
+
+  [CHECKPOINT DECISION] epoch=5 runtime=1.584s | checkpoint=False
+
+  Epoch 7/10
+[36m(CIFAR10Trainer pid=94452)[0m   Epoch 5: loss=0.8200, acc=0.7244, val_loss=1.6868, val_acc=0.3880
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Training epoch 6...
+
+  [CHECKPOINT DECISION] epoch=6 runtime=1.589s | checkpoint=False
+
+  Epoch 8/10
+[36m(CIFAR10Trainer pid=94452)[0m   Epoch 6: loss=0.6880, acc=0.7709, val_loss=1.7954, val_acc=0.3920
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Training epoch 7...
+
+  [CHECKPOINT DECISION] epoch=7 runtime=2.241s | checkpoint=False
+
+  Epoch 9/10
+[36m(CIFAR10Trainer pid=94452)[0m   Epoch 7: loss=0.5538, acc=0.8213, val_loss=1.8522, val_acc=0.4200
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Training epoch 8...
+
+  [CHECKPOINT DECISION] epoch=8 runtime=1.612s | checkpoint=False
+
+  Epoch 10/10
+[36m(CIFAR10Trainer pid=94452)[0m   Epoch 8: loss=0.4564, acc=0.8593, val_loss=1.6454, val_acc=0.4780
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Training epoch 9...
+
+  [CHECKPOINT DECISION] epoch=9 runtime=1.571s | checkpoint=False
+
+--- Stage 5: Evaluation (STATEFUL ACTOR) ---
+Ray Execution: Calls actor method to evaluate trained model
+[36m(CIFAR10Trainer pid=94452)[0m   Epoch 9: loss=0.3803, acc=0.8816, val_loss=1.7610, val_acc=0.4640
+[36m(CIFAR10Trainer pid=94452)[0m [STATEFUL ACTOR] Evaluating model after 10 epochs...
+
+[CHECKPOINT DECISION] runtime=0.126s | checkpoint=False
+
+======================================================================
+Pipeline Complete!
+======================================================================
+Total runtime: 28.247s
+
+Final Results:
+  Test Accuracy: 49.30%
+  Test Loss: 1.7392
+  Total Epochs: 10
+[ACC] Decisions saved to ray_ckpts/adaptive_decisions.json
+
+=== Adaptive Controller Summary ===
+Budget used: 4/4
+Final threshold: 0.300
+   data_loading | cost=4.255 | max=4.255 | thr=0.30 | ckpt=True
+    data_subset | cost=0.449 | max=4.255 | thr=0.30 | ckpt=False
+   trainer_init | cost=3.689 | max=4.255 | thr=0.30 | ckpt=True
+  train_epoch_0 | cost=3.174 | max=4.255 | thr=0.30 | ckpt=True
+  train_epoch_1 | cost=1.665 | max=4.255 | thr=0.30 | ckpt=True
+  train_epoch_2 | cost=1.715 | max=4.255 | thr=0.30 | ckpt=False
+  train_epoch_3 | cost=1.574 | max=4.255 | thr=0.30 | ckpt=False
+  train_epoch_4 | cost=1.569 | max=4.255 | thr=0.30 | ckpt=False
+  train_epoch_5 | cost=1.584 | max=4.255 | thr=0.30 | ckpt=False
+  train_epoch_6 | cost=1.589 | max=4.255 | thr=0.30 | ckpt=False
+  train_epoch_7 | cost=2.241 | max=4.255 | thr=0.30 | ckpt=False
+  train_epoch_8 | cost=1.612 | max=4.255 | thr=0.30 | ckpt=False
+  train_epoch_9 | cost=1.571 | max=4.255 | thr=0.30 | ckpt=False
+     evaluation | cost=0.126 | max=4.255 | thr=0.30 | ckpt=False
+
+
+### Demonstration: Training with Failures ###
+[STORE] Cleared all checkpoints
+
+======================================================================
+CIFAR-10 Training with Ray and Adaptive Checkpointing
+======================================================================
+
+--- Stage 1: Data Loading (STATELESS) ---
+Ray Execution: Launches a stateless task on any available worker
+               Task completes and result stored in object store
+[36m(CIFAR10Trainer pid=94452)[0m   Test loss: 1.7392, Test accuracy: 0.4930
+[36m(load_cifar10_data pid=94457)[0m [STATELESS TASK] Loading CIFAR-10 data...
+[36m(load_cifar10_data pid=94457)[0m   Loaded 50000 training samples, 10000 test samples
+
+[CHECKPOINT DECISION] runtime=4.676s | checkpoint=True
+[STORE] Saved checkpoint: data_ckpt
+
+--- Stage 2: Create Data Subsets (STATELESS) ---
+Ray Execution: Another stateless task, independent of previous task
+[36m(create_data_subset pid=94457)[0m [STATELESS TASK] Creating data subset of size 5000...
+
+[CHECKPOINT DECISION] runtime=1.006s | checkpoint=False
+
+--- Stage 3: Initialize Trainer (STATEFUL ACTOR) ---
+Ray Execution: Creates a stateful actor that persists in memory
+               Actor maintains model, optimizer, and training state
+[36m(create_data_subset pid=94457)[0m [STATELESS TASK] Creating data subset of size 1000...
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Initializing CIFAR10Trainer actor...
+
+[CHECKPOINT DECISION] runtime=3.515s | checkpoint=True
+
+--- Stage 4: Training Loop (STATEFUL ACTOR) ---
+Ray Execution: Repeatedly calls actor methods
+               Actor state (model weights) persists between calls
+               Each epoch builds on previous epoch's weights
+
+  Epoch 1/10
+[36m(CIFAR10Trainer pid=94458)[0m   Model initialized with 592554 parameters
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Training epoch 0...
+
+  [CHECKPOINT DECISION] epoch=0 runtime=3.373s | checkpoint=True
+[36m(CIFAR10Trainer pid=94458)[0m   Epoch 0: loss=2.1521, acc=0.2833, val_loss=2.6052, val_acc=0.1320
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Serializing model weights...
+[STORE] Saved checkpoint: train_epoch_0_ckpt
+  [STORED] Saved model weights and training state
+
+  Epoch 2/10
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Training epoch 1...
+
+  [CHECKPOINT DECISION] epoch=1 runtime=1.790s | checkpoint=True
+[36m(CIFAR10Trainer pid=94458)[0m   Epoch 1: loss=1.6471, acc=0.4173, val_loss=2.8268, val_acc=0.1360
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Serializing model weights...
+[STORE] Saved checkpoint: train_epoch_1_ckpt
+  [STORED] Saved model weights and training state
+
+  Epoch 3/10
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Training epoch 2...
+
+  [CHECKPOINT DECISION] epoch=2 runtime=1.686s | checkpoint=False
+
+  Epoch 4/10
+[36m(CIFAR10Trainer pid=94458)[0m   Epoch 2: loss=1.4129, acc=0.4907, val_loss=2.7636, val_acc=0.1440
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Training epoch 3...
+
+  [CHECKPOINT DECISION] epoch=3 runtime=1.703s | checkpoint=False
+
+  Epoch 5/10
+[36m(CIFAR10Trainer pid=94458)[0m   Epoch 3: loss=1.2280, acc=0.5669, val_loss=2.6737, val_acc=0.1660
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Training epoch 4...
+
+  [CHECKPOINT DECISION] epoch=4 runtime=1.585s | checkpoint=False
+
+  Epoch 6/10
+[36m(CIFAR10Trainer pid=94458)[0m   Epoch 4: loss=1.0596, acc=0.6273, val_loss=2.3831, val_acc=0.2240
+
+  [FAILURE] Training epoch 5 failed: [36mray::CIFAR10Trainer.train_epoch()[39m (pid=94458, ip=127.0.0.1, actor_id=9debb1636bf3b0377c35088401000000, repr=<cifar10_pipeline.CIFAR10Trainer object at 0x10b37d460>)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kaustubhkhatri/Work/EB1A/code/ray-project/adaptive-controller/cifar10_pipeline.py", line 214, in train_epoch
+    raise RuntimeError(f"Simulated failure during epoch {self.current_epoch}")
+RuntimeError: Simulated failure during epoch 5
+  [RECOVERY] Restoring from epoch 1 checkpoint...
+[STORE] Loaded checkpoint: train_epoch_1_ckpt
+[ADAPT] New cost threshold: 0.202 (benefit=59.000)
+
+  Epoch 7/10
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Training epoch 5...
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Restoring training state from epoch 2...
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Restoring model weights from checkpoint...
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Training epoch 2...
+
+  [CHECKPOINT DECISION] epoch=6 runtime=1.592s | checkpoint=False
+
+  Epoch 8/10
+[36m(CIFAR10Trainer pid=94458)[0m   Epoch 2: loss=1.4846, acc=0.4731, val_loss=2.6319, val_acc=0.2120
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Training epoch 3...
+
+  [CHECKPOINT DECISION] epoch=7 runtime=1.579s | checkpoint=False
+
+  Epoch 9/10
+[36m(CIFAR10Trainer pid=94458)[0m   Epoch 3: loss=1.2512, acc=0.5493, val_loss=2.5403, val_acc=0.2200
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Training epoch 4...
+
+  [CHECKPOINT DECISION] epoch=8 runtime=1.705s | checkpoint=False
+
+  Epoch 10/10
+[36m(CIFAR10Trainer pid=94458)[0m   Epoch 4: loss=1.0361, acc=0.6327, val_loss=2.1868, val_acc=0.2800
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Training epoch 5...
+
+  [CHECKPOINT DECISION] epoch=9 runtime=1.907s | checkpoint=False
+
+--- Stage 5: Evaluation (STATEFUL ACTOR) ---
+Ray Execution: Calls actor method to evaluate trained model
+[36m(CIFAR10Trainer pid=94458)[0m   Epoch 5: loss=0.8863, acc=0.6962, val_loss=1.9550, val_acc=0.3560
+[36m(CIFAR10Trainer pid=94458)[0m [STATEFUL ACTOR] Evaluating model after 6 epochs...
+
+[CHECKPOINT DECISION] runtime=0.133s | checkpoint=False
+
+======================================================================
+Pipeline Complete!
+======================================================================
+Total runtime: 27.789s
+
+Final Results:
+  Test Accuracy: 34.30%
+  Test Loss: 1.8808
+  Total Epochs: 6
+[ACC] Decisions saved to ray_ckpts/adaptive_decisions.json
+
+=== Adaptive Controller Summary ===
+Budget used: 4/4
+Final threshold: 0.202
+   data_loading | cost=4.676 | max=4.676 | thr=0.30 | ckpt=True
+    data_subset | cost=1.006 | max=4.676 | thr=0.30 | ckpt=False
+   trainer_init | cost=3.515 | max=4.676 | thr=0.30 | ckpt=True
+  train_epoch_0 | cost=3.373 | max=4.676 | thr=0.30 | ckpt=True
+  train_epoch_1 | cost=1.790 | max=4.676 | thr=0.30 | ckpt=True
+  train_epoch_2 | cost=1.686 | max=4.676 | thr=0.30 | ckpt=False
+  train_epoch_3 | cost=1.703 | max=4.676 | thr=0.30 | ckpt=False
+  train_epoch_4 | cost=1.585 | max=4.676 | thr=0.30 | ckpt=False
+  train_epoch_6 | cost=1.592 | max=4.676 | thr=0.20 | ckpt=False
+  train_epoch_7 | cost=1.579 | max=4.676 | thr=0.20 | ckpt=False
+  train_epoch_8 | cost=1.705 | max=4.676 | thr=0.20 | ckpt=False
+  train_epoch_9 | cost=1.907 | max=4.676 | thr=0.20 | ckpt=False
+     evaluation | cost=0.133 | max=4.676 | thr=0.20 | ckpt=False
+
+
+CIFAR-10 pipeline complete!
