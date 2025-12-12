@@ -1,6 +1,10 @@
 # Ray Execution Patterns: Stateless vs Stateful
 
-This guide explains how Ray handles tasks and actors in the CIFAR-10 training pipeline, and how the adaptive checkpoint controller enhances fault tolerance.
+This guide explains how Ray handles tasks and actors in distributed ML training pipelines, and how the adaptive checkpoint controller enhances fault tolerance.
+
+**Pipelines Demonstrated:**
+- **TensorFlow CIFAR-10** (`cifar10_pipeline.py`) - Shows both stateless tasks AND stateful actors
+- **PyTorch MNIST** (`real_ml_pipeline.py`) - Shows stateless tasks only
 
 ## Table of Contents
 1. [Ray Stateless Tasks](#ray-stateless-tasks)
@@ -8,6 +12,7 @@ This guide explains how Ray handles tasks and actors in the CIFAR-10 training pi
 3. [Comparison: Stateless vs Stateful](#comparison-stateless-vs-stateful)
 4. [Adaptive Controller Integration](#adaptive-controller-integration)
 5. [Complete Execution Flow](#complete-execution-flow)
+6. [Real-World Examples](#real-world-examples)
 
 ---
 
@@ -549,3 +554,302 @@ Time  │ Worker 1        │ Worker 2        │ Worker 3 (Actor)
 1. **Ray handles distribution**: Tasks run on any worker, actors on dedicated workers
 2. **Controller handles intelligence**: Learns when to checkpoint based on cost/benefit
 3. **Together**: Fault-tolerant, efficient distributed training with minimal manual tuning
+
+---
+
+## Real-World Examples
+
+### Example 1: PyTorch MNIST (Stateless Only)
+
+**File**: `real_ml_pipeline.py`
+
+This pipeline uses **only stateless tasks** for everything:
+
+```python
+# Stateless task 1: Load data
+@ray.remote
+def load_data_task():
+    return {"x_train": ..., "y_train": ...}
+
+# Stateless task 2: Initialize model
+@ray.remote
+def initialize_model_task():
+    model = SimpleNN()
+    return {"model_bytes": serialize(model)}
+
+# Stateless task 3: Train one epoch
+@ray.remote
+def train_epoch_task(model_bytes, x, y):
+    model = deserialize(model_bytes)  # Reload model
+    model.fit(x, y)
+    return {"model_bytes": serialize(model)}  # Return updated model
+
+# Pipeline execution
+data = ray.get(load_data_task.remote())
+model_state = ray.get(initialize_model_task.remote())
+
+for epoch in range(10):
+    model_state = ray.get(
+        train_epoch_task.remote(model_state["model_bytes"], x, y)
+    )
+```
+
+**Characteristics:**
+- ✅ Simple: Each task is independent
+- ✅ Flexible: Tasks can run on different workers
+- ❌ Overhead: Model must be serialized/deserialized each epoch
+- ❌ Slower: ~100-200ms extra per epoch for 110K parameters
+
+**When to use this pattern:**
+- Simpler workflows with few iterations
+- When worker availability varies
+- When model is small (<1MB)
+
+---
+
+### Example 2: TensorFlow CIFAR-10 (Stateless + Stateful)
+
+**File**: `cifar10_pipeline.py`
+
+This pipeline uses **both patterns optimally**:
+
+**Stateless for one-time operations:**
+```python
+# Stateless: Data loading (run once)
+@ray.remote
+def load_cifar10_data():
+    return {"x_train": ..., "y_train": ...}
+
+# Stateless: Data preprocessing (run once)
+@ray.remote
+def create_data_subset(x, y, size):
+    return {"x_subset": ..., "y_subset": ...}
+```
+
+**Stateful for iterative training:**
+```python
+# Stateful: Training (multiple epochs on same instance)
+@ray.remote
+class CIFAR10Trainer:
+    def __init__(self):
+        self.model = build_model()  # Build once, keep in memory
+        self.epoch = 0
+
+    def train_epoch(self, x, y):
+        # Model already in memory - no reload needed!
+        self.model.fit(x, y, epochs=1)
+        self.epoch += 1
+        return {"epoch": self.epoch}
+
+# Pipeline execution
+data = ray.get(load_cifar10_data.remote())  # Stateless
+subset = ray.get(create_data_subset.remote(data))  # Stateless
+
+trainer = CIFAR10Trainer.remote()  # Stateful actor
+for epoch in range(10):
+    result = ray.get(trainer.train_epoch.remote(x, y))  # Same actor
+```
+
+**Characteristics:**
+- ✅ Efficient: Model stays in memory (no reload overhead)
+- ✅ Fast: ~0ms overhead between epochs
+- ✅ Optimal: Uses stateless for one-shots, stateful for iterations
+- ✅ Scalable: Can create multiple actors for parallel training
+
+**When to use this pattern:**
+- Iterative training (>5 epochs)
+- Large models (>1MB)
+- When you want maximum efficiency
+
+---
+
+### Comparison: Same Training Job
+
+**Task**: Train 664K parameter CNN for 10 epochs on CIFAR-10
+
+| Approach | Model Reload Overhead | Total Extra Time | Code Complexity |
+|----------|----------------------|------------------|-----------------|
+| **All Stateless** (like PyTorch MNIST) | 200ms × 10 epochs = 2s | ~2 seconds | Simple |
+| **Stateful Actor** (TensorFlow CIFAR-10) | 0ms (stays in memory) | ~0 seconds | Slightly more complex |
+
+**Winner**: Stateful actors for iterative training (saves 2s on small model, 10s+ on large models)
+
+---
+
+### Example 3: Hybrid Pattern for Distributed Training
+
+You can combine both patterns for advanced workflows:
+
+```python
+# Stateless: Distribute data loading across workers
+@ray.remote
+def load_shard(shard_id):
+    return load_data_shard(shard_id)
+
+# Launch multiple parallel data loading tasks
+shard_refs = [load_shard.remote(i) for i in range(10)]
+shards = ray.get(shard_refs)  # All load in parallel
+
+# Stateful: Create multiple trainer actors for data parallelism
+@ray.remote
+class Trainer:
+    def __init__(self, model_config):
+        self.model = build_model(model_config)
+
+    def train_on_shard(self, shard_data):
+        self.model.fit(shard_data)
+        return self.model.get_weights()
+
+# Create 4 trainer actors (one per GPU)
+trainers = [Trainer.remote(config) for _ in range(4)]
+
+# Train each actor on different shards in parallel
+results = ray.get([
+    trainers[i].train_on_shard.remote(shards[i])
+    for i in range(4)
+])
+
+# Aggregate results (stateless task)
+@ray.remote
+def aggregate_weights(weight_list):
+    return average(weight_list)
+
+final_weights = ray.get(aggregate_weights.remote(results))
+```
+
+**This pattern combines:**
+- Stateless parallelism for data loading
+- Stateful actors for maintaining model state
+- Stateless aggregation for combining results
+
+---
+
+### Decision Flowchart
+
+```
+┌─────────────────────────────────────┐
+│ Need to maintain state across calls?│
+└──────────┬────────────┬─────────────┘
+           │            │
+          YES          NO
+           │            │
+           ▼            ▼
+    ┌──────────┐  ┌─────────┐
+    │ STATEFUL │  │STATELESS│
+    │  ACTOR   │  │  TASK   │
+    └──────────┘  └─────────┘
+           │            │
+           ▼            ▼
+    Examples:      Examples:
+    • Training     • Data loading
+    • Caching      • Preprocessing
+    • Serving      • Aggregation
+    • Iterative    • One-shot ops
+      computation
+```
+
+---
+
+### Performance Guidelines
+
+**Use Stateless Tasks when:**
+- Operation runs once or rarely
+- Model/data is small (<1MB)
+- Need maximum flexibility in worker assignment
+- Operations are embarrassingly parallel
+
+**Use Stateful Actors when:**
+- Iterative operations (training epochs, game simulations)
+- Large models (>1MB) that are expensive to serialize
+- Need to maintain state (model weights, cache, counters)
+- Sequential operations on the same data
+
+**Use Both when:**
+- Pipeline has distinct phases (load → train → aggregate)
+- Want to combine parallel data loading with stateful training
+- Need both flexibility and efficiency
+
+---
+
+### Common Pitfalls
+
+#### Pitfall 1: Using Stateless for Iterative Training
+
+```python
+# ❌ BAD: Stateless for training loop
+for epoch in range(100):
+    model = ray.get(train_epoch.remote(serialize(model), data))
+    # Serialization overhead 100 times!
+```
+
+```python
+# ✅ GOOD: Stateful actor for training loop
+trainer = Trainer.remote()
+for epoch in range(100):
+    ray.get(trainer.train_epoch.remote(data))
+    # No serialization overhead!
+```
+
+#### Pitfall 2: Using Stateful for One-Time Operations
+
+```python
+# ❌ BAD: Actor for one-time data load
+@ray.remote
+class DataLoader:
+    def load(self):
+        return load_data()
+
+loader = DataLoader.remote()
+data = ray.get(loader.load.remote())  # Unnecessary actor overhead
+```
+
+```python
+# ✅ GOOD: Stateless task for one-time operation
+@ray.remote
+def load_data():
+    return load_data()
+
+data = ray.get(load_data.remote())  # Simple and efficient
+```
+
+#### Pitfall 3: Forgetting to Checkpoint Actor State
+
+```python
+# ❌ BAD: Actor with no checkpointing
+trainer = Trainer.remote()
+for epoch in range(100):
+    trainer.train_epoch.remote(data)
+    # If actor crashes at epoch 99, lose everything!
+```
+
+```python
+# ✅ GOOD: Checkpoint actor state with adaptive controller
+trainer = Trainer.remote()
+for epoch in range(100):
+    trainer.train_epoch.remote(data)
+
+    if controller.should_checkpoint(f"epoch_{epoch}", elapsed):
+        state = ray.get(trainer.get_state.remote())
+        STORE.save(f"epoch_{epoch}_ckpt", state)
+```
+
+---
+
+## Conclusion
+
+**Key Takeaways:**
+
+1. **Stateless tasks** = Functions that complete and release resources
+2. **Stateful actors** = Objects that persist and maintain state
+3. **Adaptive checkpointing** = Intelligence layer that learns optimal checkpoint placement
+
+**Best Practice:**
+- Use stateless for ETL and one-time operations
+- Use stateful for iterative training and stateful services
+- Use adaptive checkpointing for fault tolerance
+- Combine all three for production ML pipelines
+
+**See the code:**
+- `cifar10_pipeline.py` - Complete example with both patterns
+- `real_ml_pipeline.py` - Stateless-only example
+- `adaptive_controller.py` - Checkpoint intelligence

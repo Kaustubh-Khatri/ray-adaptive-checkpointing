@@ -7,6 +7,22 @@ class AdaptiveCheckpointController:
     A lightweight adaptive checkpoint controller that decides
     whether to checkpoint or skip, based on task runtime,
     cost-benefit ratio, and a dynamic feedback policy.
+
+    How It Adapts:
+    1. OBSERVE: Track runtime of each completed task
+    2. DECIDE: Checkpoint if (runtime/max_seen >= threshold) AND (budget available)
+    3. LEARN: After recovery, adjust threshold based on benefit
+
+    Adaptive Formula:
+        benefit = recovery_time_saved - checkpoint_overhead
+        delta = -sign(benefit) × learning_rate × |benefit| / (|benefit| + 1)
+        threshold_new = clamp(threshold_old + delta, 0.05, 1.0)
+
+    Key Insight:
+        - Positive benefit (checkpoint saved time) → Lower threshold → Checkpoint MORE
+        - Negative benefit (checkpoint wasted time) → Raise threshold → Checkpoint LESS
+
+    See ADAPTIVE_CHECKPOINTING_EXPLAINED.md for detailed explanation.
     """
 
     def __init__(self,

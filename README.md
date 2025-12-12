@@ -96,7 +96,9 @@ Quick demo:
 python run_cifar10_demo.py
 ```
 
-**See `RAY_EXECUTION_GUIDE.md` for detailed explanation of stateless vs stateful execution!**
+**See also:**
+- `RAY_EXECUTION_GUIDE.md` - Detailed explanation of stateless vs stateful execution
+- `ADAPTIVE_CHECKPOINTING_EXPLAINED.md` - Deep dive into how adaptive learning works
 
 ## Usage
 
@@ -205,26 +207,57 @@ controller.summarize()
 
 ### Decision Algorithm
 
+The controller uses a **3-phase adaptive approach**:
+
 1. **Observation Phase**: Tracks runtime of each completed task
+   ```python
+   controller.observe_task("train_epoch_0", elapsed=15.3)
+   # Updates max_time_seen to track longest task
+   ```
+
 2. **Decision Phase**: For each task, computes:
-   ```
-   ratio = estimated_cost / max_time_seen
+   ```python
+   ratio = estimated_cost / max_time_seen  # e.g., 15.3 / 15.3 = 1.0
    decision = (ratio >= cost_threshold) AND (used < budget)
+   # Example: (1.0 >= 0.35) AND (1 < 3) → True (checkpoint!)
    ```
-3. **Feedback Phase**: After recovery, adjusts threshold:
-   ```
+
+3. **Learning Phase**: After recovery, adjusts threshold based on benefit:
+   ```python
    benefit = recovery_time_saved - checkpoint_overhead
-   direction = -1 if benefit > 0 else 1
-   delta = direction * learning_rate * |benefit| / (|benefit| + 1)
-   cost_threshold = clamp(cost_threshold + delta, 0.05, 1.0)
+   # Example: 14.0 - 1.0 = 13.0 (positive = good!)
+
+   delta = -sign(benefit) × learning_rate × |benefit| / (|benefit| + 1)
+   # Example: -1 × 0.1 × 13.0/14.0 = -0.093
+
+   new_threshold = clamp(old_threshold + delta, 0.05, 1.0)
+   # Example: 0.35 - 0.093 = 0.257 (lower = checkpoint more!)
    ```
 
 ### Adaptive Behavior
 
-- **Initially**: Checkpoints tasks exceeding 35% of max observed runtime
-- **After successful recovery**: Lowers threshold to checkpoint more frequently
-- **After wasteful checkpoint**: Raises threshold to checkpoint less frequently
-- **Budget constraint**: Stops checkpointing when budget is exhausted
+The controller **learns** from experience:
+
+| Outcome | Benefit | Action | Effect |
+|---------|---------|--------|--------|
+| **Checkpoint saved time** | Positive (+14s) | Lower threshold | Checkpoint MORE often |
+| **Checkpoint wasted time** | Negative (-2s) | Raise threshold | Checkpoint LESS often |
+| **Marginal benefit** | Small (+0.5s) | Small adjustment | Gentle tuning |
+
+**Evolution over time:**
+```
+Initial:  threshold=0.35 (checkpoint if task is >35% of max runtime)
+           ↓
+Recovery: Saved 14 seconds by checkpointing
+           ↓
+Adapted:  threshold=0.257 (checkpoint if task is >26% of max runtime)
+           ↓
+Result:   More aggressive checkpointing in failure-prone environment
+```
+
+**Budget constraint**: Stops checkpointing when budget is exhausted, regardless of threshold
+
+**📖 For detailed mathematical explanation, see `ADAPTIVE_CHECKPOINTING_EXPLAINED.md`**
 
 ## Example Output
 
@@ -306,11 +339,12 @@ adaptive-controller/
 ├── ray_pipeline.py             # Simulated pipeline (demo)
 ├── real_ml_pipeline.py         # PyTorch MNIST pipeline (stateless tasks)
 ├── cifar10_pipeline.py         # TensorFlow CIFAR-10 (stateless + stateful)
-├── run_ml_demo.py              # Quick MNIST demo
-├── run_cifar10_demo.py         # Quick CIFAR-10 demo
-├── RAY_EXECUTION_GUIDE.md      # Stateless vs Stateful execution explained
-├── requirements.txt            # Python dependencies
-├── README.md                   # This file
+├── run_ml_demo.py                      # Quick MNIST demo
+├── run_cifar10_demo.py                 # Quick CIFAR-10 demo
+├── RAY_EXECUTION_GUIDE.md              # Stateless vs Stateful execution explained
+├── ADAPTIVE_CHECKPOINTING_EXPLAINED.md # Deep dive into adaptive learning
+├── requirements.txt                    # Python dependencies
+├── README.md                           # This file
 ├── data/                       # MNIST/CIFAR-10 datasets (auto-downloaded)
 └── ray_ckpts/                  # Generated checkpoints and logs
     ├── *.pkl                   # Checkpoint files (includes model weights)
