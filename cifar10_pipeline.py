@@ -274,7 +274,7 @@ class CIFAR10Trainer:
         # Serialize model weights
         weights_buffer = io.BytesIO()
         np.savez_compressed(weights_buffer,
-                           *[w.numpy() for w in self.model.get_weights()])
+                           *self.model.get_weights())
         weights_buffer.seek(0)
 
         return weights_buffer.getvalue()

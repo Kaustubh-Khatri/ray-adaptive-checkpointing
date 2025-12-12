@@ -2,3 +2,7 @@ ray>=2.0.0
 torch>=2.0.0
 torchvision>=0.15.0
 tensorflow>=2.13.0
+matplotlib>=3.5.0
+seaborn>=0.12.0
+pandas>=1.5.0
+numpy>=1.23.0
